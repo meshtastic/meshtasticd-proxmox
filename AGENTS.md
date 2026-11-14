@@ -8,7 +8,7 @@ Working notes for meshtasticd-proxmox: two bash scripts that build a Proxmox VE 
 | --- | --- |
 | `build-template.sh` | creates a Debian 13 CT tagged `meshtasticd`, installs meshtasticd from OBS (deb822 `.sources`), pushes `files/`, wipes identity, converts it to a template |
 | `update.sh` | upgrades meshtasticd in place on the given CTs, or every running CT tagged `meshtasticd`, and restarts the ones that changed |
-| `add-radio.sh` | on a clone: host udev rule, USB passthrough in the CT config, replaces `sim.yaml` with the board config plus a `node.yaml` (node ID from the MAC, web server, UDP off) |
+| `add-radio.sh` | on a clone: host udev rule, USB passthrough in the CT config, replaces `sim.yaml` with a `radio.yaml` (`Module: auto`, or a board file for `--board`/`--serial`) plus a `node.yaml` (node ID from the MAC, web server, UDP off) |
 | `files/sim.yaml` | SimRadio, `EnableUDP`, web server on 9443, node ID from the `eth0` MAC |
 | `files/meshtasticd-wait-online.conf` | holds meshtasticd for up to 30 s until `eth0` has an IPv4 address |
 | `files/ssh-regen-hostkeys.conf` | generates any missing SSH host keys before sshd starts, so each clone gets its own |
@@ -26,6 +26,7 @@ Working notes for meshtasticd-proxmox: two bash scripts that build a Proxmox VE 
 - **Upgrades run noninteractive with `--force-confold`.** A dpkg conffile prompt has no terminal under `pct exec` and would hang the update.
 - **Radio nodes keep UDP off**, so simulated nodes are never relayed on air.
 - **`add-radio.sh` deletes `sim.yaml`**, so anything a radio node should keep from it (the node ID source, the web server) is repeated in the `node.yaml` it writes.
+- **Only autoconf sets the hardware model.** With `Module: auto`, meshtasticd reads the CH341 product name, loads `available.d/lora-usb-<name>.yaml` and reports, for example, `MESHSTICK_1262`. A copied board file skips that, and the node reports `PORTDUINO`. Autoconf's board file also resets `USB_Serialnum`, which is why `--serial` still copies one.
 
 ## Testing
 

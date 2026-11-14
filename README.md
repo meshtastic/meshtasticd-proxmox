@@ -67,7 +67,7 @@ Each clone gets a new MAC address from Proxmox, and the node ID derives from it,
 
 ## Put a node on air
 
-With a CH341 USB LoRa board (Meshtoad, MeshStick, uMesh, or RAK19714) plugged into the host, turn a clone into an on-air node. Replace `<BOARD_FILE>` with the board's file name from `/etc/meshtasticd/available.d` in the container, and `<USB_SERIAL>` with the board's USB serial number.
+With a CH341 USB LoRa board (Meshtoad, MeshStick, uMesh, or RAK19714) plugged into the host, turn a clone into an on-air node.
 
 1. Clone the template:
 
@@ -78,7 +78,7 @@ With a CH341 USB LoRa board (Meshtoad, MeshStick, uMesh, or RAK19714) plugged in
 2. Attach the board:
 
    ```shell
-   ./add-radio.sh <NEW_ID> --board <BOARD_FILE> --serial <USB_SERIAL>
+   ./add-radio.sh <NEW_ID>
    ```
 
 3. Set the region and modem preset of the mesh you want to join:
@@ -87,9 +87,11 @@ With a CH341 USB LoRa board (Meshtoad, MeshStick, uMesh, or RAK19714) plugged in
    meshtastic --host <NODE_IP> --set lora.region US --set lora.modem_preset LONG_FAST
    ```
 
-The default board file is `lora-usb-meshstick-1262.yaml`; a Meshtoad uses `lora-usb-meshtoad-e22.yaml`. On the host, `lsusb -d 1a86:5512 -v | grep iSerial` prints each board's serial number. The USB descriptor doesn't carry the board name, but meshtasticd logs it as `CH341 Product` once it opens the board. `--serial` is only needed when several boards are plugged in. Long Fast is the default modem preset. To change the board or serial, run the script again.
+meshtasticd detects the board from its USB product name and loads the board's configuration from `/etc/meshtasticd/available.d`. A MeshStick 1262 then reports `MESHSTICK_1262` as its hardware model rather than `PORTDUINO`. `lsusb` doesn't show the board name, but meshtasticd logs it as `CH341 Product` once it opens the board.
 
-The script adds a host udev rule that lets the container open CH341 boards (the same rule meshtasticd ships), and passes `/dev/bus/usb` through so the board survives a replug. It replaces `sim.yaml` with the board's configuration and a `node.yaml` that keeps the node ID and the web client. UDP stays off on an on-air node, so simulated nodes are never relayed on air.
+For a board meshtasticd can't detect, add `--board <BOARD_FILE>` with the board's file name from `/etc/meshtasticd/available.d` in the container; a Meshtoad uses `lora-usb-meshtoad-e22.yaml`. When several boards are plugged in, add `--serial <USB_SERIAL>` to pick one; on the host, `lsusb -d 1a86:5512 -v | grep iSerial` prints each board's serial number. Both options copy a board file instead of detecting the board, `lora-usb-meshstick-1262.yaml` unless `--board` names another, so the node reports `PORTDUINO` as its hardware model. Long Fast is the default modem preset. To change the board or serial, run the script again.
+
+The script adds a host udev rule that lets the container open CH341 boards (the same rule meshtasticd ships), and passes `/dev/bus/usb` through so the board survives a replug. It replaces `sim.yaml` with a `radio.yaml` that selects the board and a `node.yaml` that keeps the node ID and the web client. UDP stays off on an on-air node, so simulated nodes are never relayed on air.
 
 If the node hears no other nodes, check that the radio started:
 
@@ -97,7 +99,7 @@ If the node hears no other nodes, check that the radio started:
 pct exec <NEW_ID> -- journalctl -u meshtasticd -b
 ```
 
-The log shows `CH341 Serial <USB_SERIAL>` and `sx1262 init success` once the board is open. If both lines are there, the likely cause is a region or modem preset that differs from the local mesh's; a node only hears nodes on the same modem preset. If they're missing, check the board file and that the board appears in `lsusb` on the host.
+The log shows `CH341 Serial <USB_SERIAL>` and `sx1262 init success` once the board is open. If both lines are there, the likely cause is a region or modem preset that differs from the local mesh's; a node only hears nodes on the same modem preset. If they're missing, check the `autoconf:` lines for the board meshtasticd found, or the board file if you passed `--board`, and that the board appears in `lsusb` on the host.
 
 Boards on native SPI (Serial Peripheral Interface, `/dev/spidev*`), such as Raspberry Pi HATs, aren't covered: x86 Proxmox hosts have no SPI bus.
 
