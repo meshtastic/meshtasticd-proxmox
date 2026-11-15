@@ -6,7 +6,7 @@
 # Run as root on the Proxmox VE host the board is plugged into. See README.md.
 set -euo pipefail
 
-BOARD="lora-usb-meshstick-1262.yaml"
+BOARD=""
 SERIAL=""
 CTID=""
 
@@ -14,8 +14,11 @@ usage() {
     cat <<EOF
 Usage: $0 <ctid> [options]
 
-  --board <file>     board config from /etc/meshtasticd/available.d (default: $BOARD)
+With no options, meshtasticd detects the board and reports its hardware model.
+
+  --board <file>     board config from /etc/meshtasticd/available.d, for a board it cannot detect
   --serial <serial>  USB serial number, to pick one board when several are plugged in
+                     (uses lora-usb-meshstick-1262.yaml unless --board is given)
 EOF
 }
 
@@ -37,7 +40,9 @@ command -v pct >/dev/null || die "pct not found: run this on a Proxmox VE host"
 CONF="/etc/pve/lxc/$CTID.conf"
 [ -f "$CONF" ] || die "CT $CTID does not exist"
 ! grep -q '^template: 1' "$CONF" || die "CT $CTID is a template; clone it first"
-case "$BOARD" in */*|"") die "--board takes a file name from available.d" ;; esac
+case "$BOARD" in */*) die "--board takes a file name from available.d" ;; esac
+# meshtasticd drops USB_Serialnum when autoconf loads the board's file, so --serial keeps a board file.
+[ -n "$BOARD" ] || [ -z "$SERIAL" ] || BOARD="lora-usb-meshstick-1262.yaml"
 case "$SERIAL" in *[!A-Za-z0-9._-]*) die "--serial takes letters, digits, '.', '_' and '-'" ;; esac
 
 # meshtasticd drives CH341 boards through libusb, so the container needs the raw USB node
@@ -78,8 +83,12 @@ wait_for_ct || die "CT $CTID did not come up with meshtasticd in 30 s; is it a c
 pct exec "$CTID" -- env BOARD="$BOARD" SERIAL="$SERIAL" bash -euo pipefail -c '
 SRC="/etc/meshtasticd/available.d/$BOARD"
 CONFD=/etc/meshtasticd/config.d
-[ -f "$SRC" ] || { echo "no $SRC; boards: $(ls /etc/meshtasticd/available.d | tr "\n" " ")" >&2; exit 1; }
-if [ -n "$SERIAL" ]; then
+[ -z "$BOARD" ] || [ -f "$SRC" ] || { echo "no $SRC; boards: $(ls /etc/meshtasticd/available.d | tr "\n" " ")" >&2; exit 1; }
+if [ -z "$BOARD" ]; then
+    # Autoconf reads the board name from USB, loads its config and sets the hardware model;
+    # a copied board file skips it, and the node reports PORTDUINO.
+    printf "Lora:\n  Module: auto\n" > "$CONFD/radio.yaml.new"
+elif [ -n "$SERIAL" ]; then
     # Replace any USB_Serialnum line, set or commented out, with ours right under Lora: so it stays in that section.
     awk -v line="  USB_Serialnum: $SERIAL" \
         "/^[ #]*USB_Serialnum:/ { next } { print } /^Lora:/ { print line; done = 1 } END { exit !done }" \
@@ -101,7 +110,7 @@ systemctl restart meshtasticd
 '
 
 cat <<EOF
-CT $CTID now drives $BOARD${SERIAL:+ (serial $SERIAL)}.
+CT $CTID now drives ${BOARD:-the board meshtasticd detects}${SERIAL:+ (serial $SERIAL)}.
 Check it: pct exec $CTID -- journalctl -u meshtasticd -n 50
 Then set the region before it transmits: meshtastic --host <ip> --set lora.region <REGION>
 EOF
